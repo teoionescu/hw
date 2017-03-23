@@ -5,7 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 
-namespace DfaMuie
+namespace Dfa
 {
     public enum AcceptorResult
     {
@@ -58,13 +58,13 @@ namespace DfaMuie
         public List<Link> Edges = new List<Link>();
     };
 
-    public class DFA
+    public abstract class FA
     {
-        private readonly Dictionary<Node, List<Link>> _graph = new Dictionary<Node, List<Link>>();
-        private readonly List<Node> _initialState;
-        private List<Node> _states;
+        protected readonly Dictionary<Node, List<Link>> _graph = new Dictionary<Node, List<Link>>();
+        protected readonly List<Node> _initialState;
+        protected List<Node> _states;
 
-        public DFA(IEnumerable<Node> nodes, IEnumerable<Link> links, Node startNode)
+        protected FA(IEnumerable<Node> nodes, IEnumerable<Link> links, Node startNode)
         {
             foreach (var node in nodes)
             {
@@ -84,7 +84,7 @@ namespace DfaMuie
             _states = _initialState;
         }
 
-        public void PrintCurrentStates()
+        protected void PrintCurrentStates()
         {
             foreach (var state in _states)
             {
@@ -93,22 +93,7 @@ namespace DfaMuie
             Console.WriteLine("");
         }
 
-        public void Advance(Letter c)
-        {
-            /*_states = (from state in _states
-                from link in _graph[state].Where(link => (link.Label is Letter) && (((Letter) link.Label).Id == c.Id))
-                select link.To).ToList();*/
-            var _newStates = new List<Node>();
-            foreach (var state in _states)
-            {
-                _newStates.AddRange(
-                    (from link in _graph[state]
-                     where (link.Label is Letter) && (((Letter)link.Label).Id == c.Id)
-                     select link.To).ToList());
-            }
-            _states = _newStates;
-            //PrintCurrentStates();
-        }
+        public abstract void Advance(Letter c);
 
         public AcceptorResult CurrentState()
         {
@@ -124,9 +109,91 @@ namespace DfaMuie
         }
     };
 
+    public class LNFA : FA
+    {
+        public LNFA(IEnumerable<Node> nodes, IEnumerable<Link> links, Node startNode) : base(nodes, links, startNode)
+        {
+        }
+
+        public override void Advance(Letter c)
+        {
+            var _newStates = new List<Node>();
+            foreach (var state in _states)
+            {
+                _newStates.AddRange(
+                    (from link in _graph[state]
+                        where ((link.Label is Letter) && (((Letter) link.Label).Id == c.Id) || (link.Label is Lambda))
+                        select link.To).ToList());
+            }
+
+            var _expandStates = new List<Node>(_newStates.Distinct());
+            var initialCount = -1;
+            do
+            {
+                initialCount = _expandStates.Count;
+                var _newlyAdded = new List<Node>();
+                foreach (var state in _expandStates)
+                {
+                    _newlyAdded.AddRange(
+                        (from link in _graph[state]
+                            where (link.Label is Lambda)
+                            select link.To).ToList());
+                }
+                _expandStates.AddRange(_newlyAdded.Distinct());
+                _expandStates = _expandStates.Distinct().ToList();
+            } while (initialCount != _expandStates.Count);
+
+            _states = _expandStates.Distinct().ToList();
+            //PrintCurrentStates();
+        }
+    }
+
+    public class NFA : FA
+    {
+        public NFA(IEnumerable<Node> nodes, IEnumerable<Link> links, Node startNode) : base(nodes, links, startNode)
+        {
+        }
+
+        public override void Advance(Letter c)
+        {
+            var _newStates = new List<Node>();
+            foreach (var state in _states)
+            {
+                _newStates.AddRange(
+                    (from link in _graph[state]
+                        where (link.Label is Letter) && (((Letter) link.Label).Id == c.Id)
+                        select link.To).ToList());
+            }
+            _states = _newStates.Distinct().ToList();
+            //PrintCurrentStates();
+        }
+    }
+
+    public class DFA : FA
+    {
+        public DFA(IEnumerable<Node> nodes, IEnumerable<Link> links, Node startNode) : base(nodes, links, startNode)
+        {
+        }
+
+        public override void Advance(Letter c)
+        {
+            var singularState = _states[0];
+
+            if (singularState != null)
+            {
+                singularState =
+                    (from link in _graph[singularState]
+                        where (link.Label is Letter) && (((Letter) link.Label).Id == c.Id)
+                        select link.To).FirstOrDefault();
+            }
+            _states = new List<Node> {singularState};
+            //PrintCurrentStates();
+        }
+    }
+
     public class AcceptorBuilder
     {
-        private const string LambdaId = "$";
+        private const string LambdaId = "_";
         private const string StartStateId = "0";
 
         private static readonly Dictionary<string, Node> _nodeMap = new Dictionary<string, Node>();
@@ -185,6 +252,15 @@ namespace DfaMuie
             return new DFA(Nodes, Links, _startNode);
         }
 
+        public static NFA GetNfa()
+        {
+            return new NFA(Nodes, Links, _startNode);
+        }
+        public static LNFA GetLnfa()
+        {
+            return new LNFA(Nodes, Links, _startNode);
+        }
+
         public static IEnumerable<Letter> ParseTestInput(string input)
         {
             var answerLetters = new List<Letter>();
@@ -202,8 +278,6 @@ namespace DfaMuie
 
     internal class Program
     {
-
-
         private static StreamReader OpenFile(string fileName)
         {
             string path = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), fileName);
@@ -211,7 +285,7 @@ namespace DfaMuie
             return new StreamReader(fileStream, Encoding.UTF8);
         }
 
-        private static void RunTests(DFA dfa)
+        private static void RunTests(FA dfa)
         {
             var input = Console.ReadLine();
             while (true)
@@ -227,12 +301,12 @@ namespace DfaMuie
 
         private static void Main(string[] args)
         {
-            using (var streamReader = OpenFile(@"Input.txt"))
+            using (var streamReader = OpenFile(@"InputDefinition.txt"))
                 AcceptorBuilder.ParseCreationInput(streamReader);
 
-            var dfa = AcceptorBuilder.GetDfa();
+            var fa = AcceptorBuilder.GetLnfa();
 
-            RunTests(dfa);
+            RunTests(fa);
         }
     }
 }
